@@ -2,7 +2,7 @@
 
 This exploit is primarily written as a learning tool alongside the derivation guide below, it is intended as a documentation of my exploit development process as well as a brief literature review of the various components associated with the ms08_067 vulnerability, such as SMB, DCE/RPC, and named pipes. However, if you must break things with the code, ensure that you first have permission to test the target, and that you test the exploit in your own environment beforehand. 
 
-The return addresses within the exploit should work perfectly for Windows XP SP 0 and 1 as is, any other targets will require a different return address and potentially some DEP and ASLR by-pass, see the source code of ms08_067_netapi for more information. 
+The return addresses within the exploit should work perfectly for Windows XP SP 0 and 1 as is, any other targets will require a different return address and potentially some DEP and ASLR by-pass, see the source code of the ms08_067_netapi module in metasploit for more information. 
 
 Also, no matter the target, you will have to replace the payload with your own shellcode (to include source/target ip addresses etc), this can be done simply by running the msfvenom command:
 ```bash
@@ -116,9 +116,11 @@ whereas the definition of named pipes from wikipedia [6], in the context of Wind
 
 From these definitions, we can assume that the vulnerable server service (srvsvc) will subscribe to a named pipe, and publish some methods along with the vulnerable NetprPathCanonicalize(). So, in order to find the correct pipe to serve our exploit, we need to first find the pipe that the Server Service is listening on. In DCE/RPC the Server Service connects to a named pipe on start up, and assigns its' RPC interface a Universally Unique Identifier or UUID, which just happens to be 4b324fc8-1670-01d3-1278-5a47bf6ee188 from [9]:
 
-![srvsvc UUID](images\160-1.png)
+![srvsvc UUID](images/160-1.png)
 
 Looking for this UUID and associating it with a named pipe is easy with a brilliant tool set called rpctools (Google it and dig around, make sure to run anything you find in a VM as theres' some pretty dodgy sites serving the zip file, alternatives which are not quite as thorough are metasploits' endpoint_mapper, and the nmap script msrpc-enum.nse). In particular from rpctools is rpcdump.exe with the -v flag, this lists all RPC endpoints, including all RPC named pipes, with all services attached to each. The output is:
+
+```bash
 
 IfId: 5a7b91f8-ff00-11d0-a9b2-00c04fb6e6fc version 1.0
 Annotation: Messenger Service
@@ -188,17 +190,19 @@ c9378ff1-16f7-11d0-a0b2-00aa0061426a v1.0
 5a7b91f8-ff00-11d0-a9b2-00c04fb6e6fc v1.0
 3ba0ffc0-93fc-11d0-a4ec-00a0c9062910 v1.0
 
+```
+
 Bingo, we have 3 interfaces which lead to our target UUID. One of the bindings starts with ncadg_ip_udp, and two with ncacn_np, these are called ‘transports’, a DCE/RPC concept that we'll get to in the next section, all we need to know for now is ncacn_np refers to named pipes so the latter two are of interest for our needs. Also notice that EVIE-DAX7N4F9KX is the NetBIOS name of the target computer. So moving forward we have two interesting named pipes, ntsvcs and scerpc. 
 
 Subsequent pages of [0] also goes on to explain the dwindling number of named pipes which are available for null sessions over time. With each new Windows release, more Active Directory control is given to restrict anonymous named pipe access. Especially [8], which identified the \pipe\browser share as an alias of ntsvcs, as well as \pipe\wkssvc, \pipe\srvsvc. Also from [8], the browser pipe seems to always be available for SMB NULL session access (At least until Windows XP). let's query these interfaces directly using another tool from rpctools, ifids.exe:
 
-![browser alias 1](images\160-2.png)
+![browser alias 1](images/160-2.png)
 
-![browser alias 2](images\160-3.png)
+![browser alias 2](images/160-3.png)
 
 They do indeed advertise an identical set of interfaces (ntsvcs), and this set of interfaces includes the Server Service interface. Just to show that you cannot simply pick any named pipe for communication with the server service, I include a query of some lsass aliases:
 
-![not browser alias](images\160-4.png)
+![not browser alias](images/160-4.png)
 
 Which do not include the Server Service as expected. So then, let us select \pipe\browser as the named pipe for our exploit. [1] shows us that selecting a named pipe to write to is like creating or opening a file to write to, we send one more SMB packet:
 > After the three standard initial packets, another common packet is sent -- SMB_COM_NT_CREATE. This is the packet used to create and open files. In this case, it's used to open a named pipe (since we're attached to the IPC$ share, you can't actually create files).
@@ -244,7 +248,7 @@ The aim of an RPC call is to select a function known to be supported by the ‘e
 * *Operation Number:* This identifies the function within the RPC interface, for our purposes the operation number for NetprPathCanonicalize is 0x1f, or 31 in decimal [6]. The Operation number is passed along with the marshalled parameters to execute the function call.
 
 
-![opnum](images\161-1.png)
+![opnum](images/161-1.png)
 
 
 [0] http://www.hsc.fr/ressources/articles/win_net_srv/msrpc_intro.html
@@ -275,7 +279,7 @@ I'll try to go through in detail how each of these sources contributed to my wor
 
 So, let's begin with the Debasis Mohanty ‘Proof of Concept’ code. For me, it did not work at all, and I couldn't really work out why during my investigation. For example, I extracted the payload to investigate whether it was indeed a bind shell. Using the simple skeleton c code used to test shellcode [0] I ran the payload in a fresh throwaway VM (Don't execute mystery shellcode in a computer you like / want to keep!!). The result was:
 
-![windows bind shellcode](images\162-1.png)
+![windows bind shellcode](images/162-1.png)
 
 So it is a reverse shell payload as it claims to be! So what on earth could be going wrong? I followed the execution through to the end in Ollydbg and a Windows 2000 machine I managed to wangle from [2]  (They're keeping a load of old OSs as disk images, useful!). What I found was slightly unexpected, the exploit was causing a crash when the target attempted to execute a seemingly arbitrary location in the padding of the payload, somehow the Debasis Mohanty payload is misaligned. 
 
@@ -351,6 +355,8 @@ class NetprPathCanonicalize(Structure):
     )
 ```
 
+and
+
 ```python
 self.query = NetprPathCanonicalize()
 self.query['ServerName'] = "ABCDEF\x00".encode('utf-16le')
@@ -380,7 +386,7 @@ Developing the Payload Path
 
 A screenshot of the call stack, as mentioned in the original exploit blurb we can see that NetprPathCanonicalize is called from NetAPI32.dll, which in turn is called from the Server Service (srvsvc).
 
-![debug screen 0](images\162-2.png)
+![debug screen 0](images/162-2.png)
 
 
 ### Screen 1)
