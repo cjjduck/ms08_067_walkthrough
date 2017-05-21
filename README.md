@@ -13,7 +13,7 @@ and copying the output into the exploit code at the marked location.
 
 # Introduction
 
-The hacker ethos at its' core for me, just like any scientist, is an unbounded enthusiasm for understanding and communicating how things work. I believe that contributing is the best way to feel legitimately involved in a community. With that in mind, my first little contribution, a beginners' walkthrough of the MS08_067 vulnerability, culminating with the step-by-step development of a working exploit in Python.
+The hacker ethos at its' core for me, just like any scientist, is an unbounded enthusiasm for understanding and communicating how things work. I believe that contributing is the best way to feel legitimately involved in a community, so with that in mind, my first little contribution; a beginners' walkthrough of the MS08_067 vulnerability, culminating with the step-by-step development of a working exploit in Python.
 
 Let's start with the fact that MS08_067 is a bug, and it was given this rather bland codename because it was the 67th bugfix in 2008 by Microsoft. It was a particularly devastating bug, because prior to the update all a variety of Windows versions were exploitable at factory settings, without any credentials whatsoever, and it was completely automatable. I recognise that at almost a decade old, this is an ancient vulnerability, but during my time working as a penetration tester, even in 2016/2017, I have discovered a fair number of machines that are *still* vulnerable to this.
 
